@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neuron AI — Brain.js</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2e;--line:#263452;--text:#e8eefc;--muted:#9eaccb;--accent:#7c9cff;--good:#58d6a3}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#172449 0,#0b1020 55%);font:16px/1.5 system-ui,Segoe UI,Arial;color:var(--text)}
+main{max-width:1000px;margin:auto;padding:28px 16px 50px}.hero{margin-bottom:22px}.eyebrow{color:var(--good);font-weight:700;letter-spacing:.13em;text-transform:uppercase;font-size:.76rem}
+h1{margin:.25rem 0;font-size:clamp(2rem,5vw,3rem)}.sub{color:var(--muted);max-width:720px}
+.grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:16px}.panel{background:#121a2eeb;border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 16px 45px #0002}
+h2{font-size:1.05rem;margin:0 0 12px}.chatlog{height:360px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:8px 2px 14px}
+.msg{padding:11px 13px;border-radius:13px;max-width:92%;white-space:pre-wrap;overflow-wrap:anywhere}.user{align-self:flex-end;background:#253967}.bot{align-self:flex-start;background:#1b2943;border:1px solid #2b3b5b}.system{align-self:center;color:var(--muted);font-size:.82rem}
+form{display:flex;gap:8px}input,textarea{width:100%;background:#0c1325;border:1px solid #30405f;color:var(--text);border-radius:10px;padding:12px;font:inherit}button{border:0;border-radius:10px;background:var(--accent);color:#071126;font-weight:750;padding:11px 15px;cursor:pointer}button.secondary{background:#243452;color:var(--text);border:1px solid #35496d}button:hover{filter:brightness(1.08)}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.small{font-size:.86rem;color:var(--muted)}.stat{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #263452}.stat strong{color:var(--good)}textarea{min-height:76px;resize:vertical}.field{margin:12px 0}.field label{display:block;font-size:.88rem;color:var(--muted);margin-bottom:5px}.notice{border-left:3px solid var(--accent);padding:9px 12px;background:#17223b;color:#cbd7f2;border-radius:5px;font-size:.88rem;margin-top:14px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.chatlog{height:300px}}
+</style>
+</head>
+<body>
+<main>
+<header class="hero"><div class="eyebrow">Brain.js · File-based knowledge</div><h1>Neuron AI <span aria-hidden="true">🧠</span></h1><p class="sub">A small teachable AI demo. It loads starter facts from <code>neuron.js</code>, uses a Brain.js classifier when available, and keeps new learning in this browser.</p></header>
+<div class="grid">
+<section class="panel">
+<h2>Chat with Neuron</h2>
+<div id="chatlog" class="chatlog" aria-live="polite"></div>
+<form id="chatform"><input id="message" autocomplete="off" placeholder="Ask something or: remember that ... " aria-label="Message"><button>Send</button></form>
+<div class="row"><button class="secondary" id="exportBtn" type="button">Export learned knowledge</button><label class="secondary" style="padding:10px 12px;border-radius:10px;cursor:pointer">Import JSON <input id="importFile" type="file" accept=".json,application/json" hidden></label><button class="secondary" id="clearBtn" type="button">Clear local learning</button></div>
+<p class="small">Try: “What is photosynthesis?” or “remember that photosynthesis happens in plants”. You can also teach Q&A with <code>teach: question => answer</code>.</p>
+</section>
+<aside class="panel">
+<h2>Neuron status</h2>
+<div class="stat"><span>Starter facts (neuron.js)</span><strong id="baseCount">…</strong></div>
+<div class="stat"><span>Locally learned facts</span><strong id="learnedCount">0</strong></div>
+<div class="stat"><span>Learned Q&A pairs</span><strong id="qaCount">0</strong></div>
+<div class="stat"><span>Brain.js</span><strong id="brainStatus">Checking…</strong></div>
+<div class="notice">The <code>neuron.js</code> file is read-only in a browser. New facts are saved in local storage on this device until you export them. To share learning across devices, connect a database/backend.</div>
+<h2 style="margin-top:20px">How to teach</h2>
+<div class="field"><label>Fact</label><textarea id="factInput" placeholder="Example: The Moon orbits Earth."></textarea></div>
+<button id="teachFact" type="button">Teach fact</button>
+<div class="field"><label>Question</label><input id="qaQuestion" placeholder="What does the Moon orbit?"></div>
+<div class="field"><label>Answer</label><textarea id="qaAnswer" placeholder="The Moon orbits Earth."></textarea></div>
+<button id="teachQA" type="button">Teach Q&A</button>
+</aside>
+</div>
+<p class="small" style="margin-top:18px">For GitHub Pages, upload <code>index.html</code> and <code>neuron.js</code> into the same folder. Internet is needed to load Brain.js from its CDN.</p>
+</main>
+<script src="https://unpkg.com/brain.js"></script>
+<script src="./neuron.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const STORAGE_KEY = 'neuron-ai-learned-v2';
+const log = $('chatlog');
+const starter = (window.NEURON_KNOWLEDGE && Array.isArray(window.NEURON_KNOWLEDGE.facts)) ? window.NEURON_KNOWLEDGE.facts : [];
+const starterQA = (window.NEURON_KNOWLEDGE && Array.isArray(window.NEURON_KNOWLEDGE.qa)) ? window.NEURON_KNOWLEDGE.qa : [];
+let learned = loadLearned();
+let classifier = null;
+function loadLearned(){try{const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');return {facts:Array.isArray(x.facts)?x.facts:[],qa:Array.isArray(x.qa)?x.qa:[]}}catch{return {facts:[],qa:[]}}}
+function saveLearned(){localStorage.setItem(STORAGE_KEY,JSON.stringify(learned));updateStats()}
+function updateStats(){$('baseCount').textContent=starter.length;$('learnedCount').textContent=learned.facts.length;$('qaCount').textContent=learned.qa.length;$('brainStatus').textContent=window.brain?'Loaded':'Unavailable';}
+function addMessage(text,kind='bot'){const el=document.createElement('div');el.className='msg '+kind;el.textContent=text;log.appendChild(el);log.scrollTop=log.scrollHeight}
+function normalize(s){return String(s||'').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim()}
+function allFacts(){return [...starter,...learned.facts]}
+function allQA(){return [...starterQA,...learned.qa]}
+function tokens(s){return new Set(normalize(s).split(' ').filter(w=>w.length>2))}
+function similarity(a,b){const A=tokens(a),B=tokens(b);if(!A.size||!B.size)return 0;let common=0;for(const w of A)if(B.has(w))common++;return common/(A.size+B.size-common)}
+function trainClassifier(){
+  if(!window.brain || !brain.NeuralNetwork || !starterQA.length)return;
+  try{
+    const labels=[...new Set(starterQA.map(x=>x.intent).filter(Boolean))];
+    if(labels.length<2)return;
+    const words=[...new Set(starterQA.flatMap(x=>[...tokens(x.question)]))];
+    const vec=s=>words.map(w=>tokens(s).has(w)?1:0);
+    const examples=starterQA.filter(x=>x.intent).map(x=>({input:Object.fromEntries(words.map((w,i)=>[w,vec(x.question)[i]])),output:{[x.intent]:1}}));
+    if(examples.length){classifier=new brain.NeuralNetwork({hiddenLayers:[8]});classifier.train(examples,{iterations:300,errorThresh:0.02,log:false});}
+  }catch(e){console.warn('Brain.js training skipped',e)}
+}
+function answer(q){
+  const nq=normalize(q);
+  if(!nq)return 'Ask me a question, or teach me a fact.';
+  // Direct question/answer match first.
+  let best=null,score=0;
+  for(const item of allQA()){const s=Math.max(similarity(nq,item.question), normalize(item.question)===nq?1:0);if(s>score){score=s;best=item}}
+  if(best&&score>=0.35)return best.answer;
+  // Search fact text and labels; facts are retrieval memory, not generated reasoning.
+  best=null;score=0;
+  for(const f of allFacts()){
+    const hay=[f.text||'',...(f.tags||[])].join(' ');
+    let s=similarity(nq,hay);
+    if(normalize(f.text||'').includes(nq)&&nq.length>5)s=Math.max(s,0.75);
+    if(s>score){score=s;best=f}
+  }
+  if(best&&score>=0.16)return best.text;
+  if(/^(hi|hello|hey|good morning|good evening)$/.test(nq))return 'Hello! I am Neuron AI. Ask me about my knowledge or teach me something new.';
+  return 'I do not know that yet. Teach me with “remember that your fact here” or use the Teach Q&A section. My starter knowledge is in neuron.js.';
+}
+function handleInput(raw){
+  const q=raw.trim();if(!q)return;addMessage(q,'user');
+  const remember=q.match(/^remember that\s+(.+)$/i);
+  const teach=q.match(/^teach:\s*(.+?)\s*=>\s*(.+)$/i);
+  if(remember){learned.facts.push({text:remember[1].trim(),source:'user',createdAt:new Date().toISOString()});saveLearned();addMessage('Learned and saved in this browser: '+remember[1].trim());return}
+  if(teach){learned.qa.push({question:teach[1].trim(),answer:teach[2].trim(),source:'user',createdAt:new Date().toISOString()});saveLearned();addMessage('I learned that question and answer locally.');return}
+  addMessage(answer(q));
+}
+$('chatform').addEventListener('submit',e=>{e.preventDefault();handleInput($('message').value);$('message').value='';$('message').focus()});
+$('teachFact').addEventListener('click',()=>{const text=$('factInput').value.trim();if(!text)return alert('Enter a fact first.');learned.facts.push({text,source:'form',createdAt:new Date().toISOString()});saveLearned();$('factInput').value='';addMessage('Fact saved locally: '+text,'system')});
+$('teachQA').addEventListener('click',()=>{const question=$('qaQuestion').value.trim(),answerText=$('qaAnswer').value.trim();if(!question||!answerText)return alert('Enter both a question and an answer.');learned.qa.push({question,answer:answerText,source:'form',createdAt:new Date().toISOString()});saveLearned();$('qaQuestion').value='';$('qaAnswer').value='';addMessage('Q&A pair saved locally: '+question,'system')});
+$('exportBtn').addEventListener('click',()=>{const blob=new Blob([JSON.stringify(learned,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='neuron-learned-knowledge.json';a.click();URL.revokeObjectURL(url)});
+$('importFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!Array.isArray(data.facts)||!Array.isArray(data.qa))throw new Error('Expected facts and qa arrays');learned={facts:[...learned.facts,...data.facts],qa:[...learned.qa,...data.qa]};saveLearned();addMessage('Imported knowledge into this browser.','system')}catch(err){alert('Could not import this JSON file: '+err.message)}e.target.value=''});
+$('clearBtn').addEventListener('click',()=>{if(confirm('Clear locally learned facts and Q&A? This will not change neuron.js.')){learned={facts:[],qa:[]};saveLearned();addMessage('Local learning cleared. Starter knowledge remains available.','system')}});
+updateStats();trainClassifier();
+addMessage('Hello! I loaded '+starter.length+' starter facts from neuron.js. You can ask questions or teach me new things.');
+})();
+</script>
+</body>
+</html>
