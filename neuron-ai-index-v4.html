@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neuron AI — Growing Brain</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#131d33;--line:#2a3a5c;--text:#edf2ff;--muted:#a6b4d1;--accent:#8ba7ff;--green:#61ddb0;--warn:#ffd27a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1b2a51,#0b1020 60%);color:var(--text);font:16px/1.5 system-ui,Arial,sans-serif}main{max-width:1050px;margin:auto;padding:26px 15px 48px}.tag{font-size:.76rem;text-transform:uppercase;letter-spacing:.12em;color:var(--green);font-weight:800}h1{font-size:clamp(2rem,5vw,3rem);margin:.2rem 0}.muted{color:var(--muted)}.layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.8fr);gap:16px}.panel{border:1px solid var(--line);background:#131d33ed;border-radius:18px;padding:18px;box-shadow:0 14px 35px #0002}h2{font-size:1.05rem;margin:0 0 12px}.log{height:340px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:5px 0 12px}.msg{max-width:94%;padding:10px 13px;border-radius:13px;white-space:pre-wrap;overflow-wrap:anywhere}.user{align-self:flex-end;background:#263b70}.bot{align-self:flex-start;background:#1b2a47;border:1px solid #2b3d60}.sys{align-self:center;color:var(--muted);font-size:.86rem}form{display:flex;gap:8px}input,textarea{font:inherit;color:var(--text);background:#0b1427;border:1px solid #354769;border-radius:10px;padding:11px;width:100%}textarea{min-height:75px;resize:vertical}button{font:inherit;font-weight:750;cursor:pointer;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:#081126}button.secondary{background:#243552;color:var(--text);border:1px solid #3a4e73}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.field{margin:12px 0}.field label{display:block;color:var(--muted);font-size:.88rem;margin-bottom:5px}.status{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 0}.status strong{color:var(--green);text-align:right}.note{font-size:.87rem;background:#1a2947;border-left:3px solid var(--accent);padding:10px 12px;margin-top:14px;border-radius:5px}.warn{border-color:#9a7537;color:#ffdfa1}.tiny{font-size:.84rem}.pill{display:inline-block;border:1px solid #34476b;border-radius:999px;padding:2px 8px;color:var(--muted);font-size:.78rem}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.log{height:300px}}
+</style>
+</head>
+<body>
+<main>
+<header style="margin-bottom:20px"><div class="tag">Growing brain · Persistent memory</div><h1>Neuron AI 🧠</h1><p class="muted">Teach a fact once and, after cloud setup, everyone using this same site can retrieve it. The <code>neuron.js</code> brain core manages starter knowledge, retrieval, local memory, and exportable brain snapshots.</p></header>
+<div class="layout">
+<section class="panel">
+<h2>Chat</h2>
+<div id="log" class="log" aria-live="polite"></div>
+<form id="chat"><input id="message" placeholder="Ask a question or type: remember that ..." autocomplete="off" aria-label="Message"><button>Send</button></form>
+<div class="row"><button class="secondary" id="export" type="button">Export shared knowledge</button><button class="secondary" id="exportJs" type="button">Download growing brain snapshot</button><label class="secondary" style="padding:10px 12px;border-radius:10px;cursor:pointer">Import JSON <input id="import" type="file" accept=".json,application/json" hidden></label></div>
+<p class="muted tiny">Memory is saved locally first, so it should survive closing Chrome. Cloud sync is optional. Use the same website URL each time and make sure Chrome is not set to clear site data on exit.</p>
+</section>
+<aside class="panel">
+<h2>Knowledge status</h2>
+<div class="status"><span>Starter facts</span><strong id="starterCount">—</strong></div>
+<div class="status"><span>Shared cloud facts</span><strong id="cloudCount">—</strong></div>
+<div class="status"><span>Local-only facts</span><strong id="localCount">—</strong></div>
+<div class="status"><span>Cloud connection</span><strong id="cloudStatus">Checking…</strong></div>
+<div id="cloudNote" class="note">To share learning across devices, set up the Supabase project described in SUPABASE_SETUP.txt and enter its URL and anon key in neuron.js.</div>
+<h2 style="margin-top:20px">Teach a fact</h2>
+<div class="field"><label>Fact to add</label><textarea id="fact" placeholder="Example: The Moon orbits Earth."></textarea></div>
+<div class="field"><label>Tags (optional, comma-separated)</label><input id="tags" placeholder="space, moon, earth"></div>
+<button id="teach" type="button">Teach Neuron AI</button>
+<div class="note warn tiny">Only add public, non-sensitive facts. In the starter setup, visitors can read and add knowledge, so don't store private information.</div>
+</aside>
+</div>
+<p class="muted tiny" style="margin-top:16px">Important: local memories belong to this browser and this exact website address. To share memories across devices, configure Supabase. A static website cannot rewrite its deployed JavaScript file for all visitors.</p>
+</main>
+<script src="./neuron.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const Brain = window.NEURON_BRAIN;
+const config = Brain.config;
+let cloudFacts = [];
+const log = $('log');
+// IMPORTANT: the original placeholder was mistakenly treated as a real URL.
+const hasCloudConfig = !!(config.supabaseUrl && config.supabaseAnonKey &&
+  /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(config.supabaseUrl) &&
+  !/YOUR_|PLACEHOLDER/i.test(config.supabaseAnonKey));
+
+function add(text, kind='bot') {
+  if (!log) return;
+  const d=document.createElement('div'); d.className='msg '+kind; d.textContent=text;
+  log.appendChild(d); log.scrollTop=log.scrollHeight;
+}
+function stats() {
+  const s=Brain.getStats();
+  if($('starterCount')) $('starterCount').textContent=s.starterFacts;
+  if($('cloudCount')) $('cloudCount').textContent=s.cloudFacts;
+  if($('localCount')) $('localCount').textContent=s.localFacts;
+  if($('cloudStatus')) $('cloudStatus').textContent=hasCloudConfig?'Configured':'Local memory active';
+}
+function apiUrl(){return config.supabaseUrl.replace(/\/+$/,'')+'/rest/v1/neuron_knowledge'}
+async function cloudRequest(url, options={}) {
+  const headers={apikey:config.supabaseAnonKey,Authorization:'Bearer '+config.supabaseAnonKey,'Content-Type':'application/json',Prefer:'return=representation',...(options.headers||{})};
+  const res=await fetch(url,{...options,headers});
+  const body=await res.text();
+  if(!res.ok) throw new Error('Cloud request failed ('+res.status+'): '+body.slice(0,180));
+  return body?JSON.parse(body):[];
+}
+async function loadCloud(){
+  if(!hasCloudConfig){ stats(); return; }
+  try{
+    cloudFacts=await cloudRequest(apiUrl()+'?select=id,kind,text,tags,question,answer,created_at&order=created_at.asc');
+    cloudFacts=cloudFacts.map(x=>x.kind==='qa'
+      ? {kind:'qa',question:x.question||'',answer:x.answer||'',text:x.answer||'',tags:x.tags||[],id:x.id,source:'cloud'}
+      : {kind:'fact',text:x.text||'',tags:x.tags||[],id:x.id,source:'cloud'});
+    Brain.replaceCloudFacts(cloudFacts);
+    if($('cloudStatus')) $('cloudStatus').textContent='Connected ✓';
+    if($('cloudNote')) $('cloudNote').textContent='Cloud connected. Local memory is still saved as a backup.';
+  }catch(e){
+    if($('cloudStatus')) $('cloudStatus').textContent='Offline / error';
+    if($('cloudNote')) $('cloudNote').textContent='Cloud sync failed; local memory still works. Check the Supabase URL/key, table, and policies. '+e.message;
+    console.error(e);
+  }
+  stats();
+}
+async function teachFact(text,tags=[]){
+  // Save locally FIRST. If the network/cloud fails, the memory is still kept.
+  const result=Brain.addLocalFact({text,tags},{source:'local'});
+  stats();
+  if(hasCloudConfig){
+    try{
+      const payload={kind:'fact',text:text.trim(),tags:tags.map(x=>x.trim()).filter(Boolean),source:'public-web'};
+      const saved=await cloudRequest(apiUrl(),{method:'POST',body:JSON.stringify(payload)});
+      const x=saved[0]||payload;
+      if(!cloudFacts.some(f=>Brain.normalize(f.text)===Brain.normalize(text))) {
+        cloudFacts.push({kind:'fact',text:x.text||payload.text,tags:x.tags||payload.tags,id:x.id,source:'cloud'});
+        Brain.replaceCloudFacts(cloudFacts);
+      }
+      stats();
+      return result.duplicate ? 'This fact was already in memory. Local memory is safe; cloud sync was attempted.' : 'Saved to local memory and synced to the shared cloud.';
+    }catch(e){
+      return (result.duplicate?'This fact is already in local memory. ':'Saved to this browser. ')+'Cloud sync failed, but local memory is safe: '+e.message;
+    }
+  }
+  return result.duplicate
+    ? 'A very similar fact already exists in persistent local memory.'
+    : 'Saved to persistent local memory. It should remain after Chrome closes.';
+}
+
+// Wikipedia's public MediaWiki Action API. No API key is required.
+async function wikipediaLookup(query){
+  const url='https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch='+encodeURIComponent(query)+'&gsrlimit=1&prop=extracts|info&exintro=1&explaintext=1&inprop=url&format=json&origin=*';
+  const res=await fetch(url);
+  if(!res.ok) throw new Error('Wikipedia request failed ('+res.status+').');
+  const data=await res.json();
+  const pages=Object.values(data.query?.pages||{});
+  if(!pages.length) return null;
+  const p=pages[0];
+  return {title:p.title,text:(p.extract||'').slice(0,1800),url:p.fullurl||('https://en.wikipedia.org/wiki/'+encodeURIComponent(p.title.replace(/ /g,'_')))};
+}
+// MathJS hosted API evaluates supported math expressions; never use JavaScript eval.
+async function mathLookup(raw){
+  let expr=raw.trim().replace(/^(please\s+)?(calculate|compute|solve|maths?|math)\s*[:,-]?\s*/i,'');
+  expr=expr.replace(/^what is\s+/i,'').replace(/[?=]+$/,'').trim();
+  if(!expr || !/[0-9]/.test(expr) || !/^[0-9a-zA-Z_().,+\-*/%^!\s\[\]]+$/.test(expr)) return null;
+  const res=await fetch('https://api.mathjs.org/v4/?expr='+encodeURIComponent(expr));
+  const text=await res.text();
+  if(!res.ok || /^Error/i.test(text)) throw new Error('Math API could not evaluate that expression. Try a simpler expression such as 12*(4+3).');
+  return {text:expr+' = '+text.trim(),url:'https://mathjs.org/'};
+}
+// PubChem is a public chemistry API. If it cannot identify the term, fall back to Wikipedia.
+async function scienceLookup(raw){
+  const query=raw.trim().replace(/^(science|chemistry|chemical|compound)\s*[:,-]?\s*/i,'').replace(/^(what is|tell me about|explain)\s+/i,'').replace(/[?]+$/,'').trim();
+  if(!query) return null;
+  try{
+    const url='https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/'+encodeURIComponent(query)+'/property/MolecularFormula,IUPACName,MolecularWeight/JSON';
+    const res=await fetch(url);
+    if(res.ok){
+      const data=await res.json(); const p=data.PropertyTable?.Properties?.[0];
+      if(p) return {title:'PubChem chemistry result: '+query,text:'Molecular formula: '+(p.MolecularFormula||'not listed')+'\nIUPAC name: '+(p.IUPACName||'not listed')+'\nMolecular weight: '+(p.MolecularWeight||'not listed')+' g/mol',url:'https://pubchem.ncbi.nlm.nih.gov/'};
+    }
+  }catch(e){ console.warn('PubChem unavailable; trying Wikipedia',e); }
+  return wikipediaLookup(query);
+}
+async function handle(raw){
+  const q=String(raw||'').trim(); if(!q)return; add(q,'user');
+  const m=q.match(/^remember that\s+(.+)$/i);
+  if(m){ try{add(await teachFact(m[1],[]));}catch(e){add('Could not save memory: '+e.message)} return; }
+  const teachMatch=q.match(/^(teach|remember)\s*:\s*(.+)$/i);
+  if(teachMatch){try{add(await teachFact(teachMatch[2],[]));}catch(e){add('Could not save memory: '+e.message)}return;}
+
+  // Explicit routes: math: 2+2, science: water, wiki: photosynthesis.
+  try{
+    const mathPrefix=q.match(/^(math|maths|calculate|compute|solve)\s*[:,-]\s*(.+)$/i);
+    const sciencePrefix=q.match(/^(science|chemistry|chemical|compound)\s*[:,-]\s*(.+)$/i);
+    const wikiPrefix=q.match(/^(wiki|wikipedia)\s*[:,-]\s*(.+)$/i);
+    let result;
+    if(mathPrefix){const a=await mathLookup(mathPrefix[2]);if(a){add(a.text);add('Source: MathJS API · '+a.url,'sys');return;}}
+    else if(sciencePrefix){result=await scienceLookup(sciencePrefix[2]);if(result){add((result.title?result.title+'\n':'')+result.text);add('Source: '+result.url,'sys');return;}}
+    else if(wikiPrefix){result=await wikipediaLookup(wikiPrefix[2]);if(result){add(result.title+'\n'+result.text);add('Source: '+result.url,'sys');return;}}
+    else {
+      const mathish=/^(what is\s+)?[0-9\s().,+\-*/%^!]+$/.test(q) && /[0-9]/.test(q) && /[+*/%^!]|\d\s*-\s*\d|\d\s+\d/.test(q);
+      if(mathish){const a=await mathLookup(q);if(a){add(a.text);add('Source: MathJS API · '+a.url,'sys');return;}}
+    }
+  }catch(e){ add('Online API issue: '+e.message+' I will check my saved memory next.','sys'); }
+
+  const result=Brain.answer(q);
+  // Ask Wikipedia when local memory doesn't have a useful match.
+  if(!result.fact || result.confidence<0.22){
+    try{
+      const wiki=await wikipediaLookup(q);
+      if(wiki && wiki.text){add(wiki.title+'\n'+wiki.text);add('Source: '+wiki.url,'sys');return;}
+    }catch(e){console.warn('Wikipedia unavailable',e);}
+  }
+  add(result.text);
+  if(result.confidence>0 && result.fact) add('Memory match confidence: '+Math.round(result.confidence*100)+'% · Source: '+(result.fact.source||'knowledge'),'sys');
+}
+if($('chat')) $('chat').addEventListener('submit',async e=>{e.preventDefault();const v=$('message').value;$('message').value='';await handle(v)});
+if($('teach')) $('teach').addEventListener('click',async()=>{
+  const text=$('fact').value.trim(); const tags=($('tags')?.value||'').split(',');
+  if(!text){alert('Write a fact first.');return}
+  const button=$('teach'); button.disabled=true; button.textContent='Saving…';
+  try{add(await teachFact(text,tags),'sys');$('fact').value='';if($('tags'))$('tags').value='';}
+  catch(e){add('Save failed: '+e.message);alert('Save failed: '+e.message)}
+  finally{button.disabled=false;button.textContent='Teach Neuron AI'}
+});
+function download(name,data,type){
+  const blob=new Blob([data],{type}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+if($('export')) $('export').addEventListener('click',()=>download('neuron-knowledge-export.json',JSON.stringify(Brain.exportKnowledge(),null,2),'application/json'));
+if($('exportJs')) $('exportJs').addEventListener('click',()=>download('neuron.js',Brain.makeNeuronJsSnapshot(),'text/javascript'));
+if($('import')) $('import').addEventListener('change',async e=>{
+  const file=e.target.files[0];if(!file)return;
+  try{const data=JSON.parse(await file.text());const result=Brain.importLocalFacts(Array.isArray(data.facts)?data.facts:[]);add('Import complete: '+result.added+' added, '+result.duplicates+' duplicates skipped, '+result.errors.length+' errors.');stats();}
+  catch(err){alert('Import failed: '+err.message)}finally{e.target.value=''}
+});
+stats();
+add('Neuron AI brain v'+Brain.version+' loaded. Local memory is restored from this browser. Try “math: 2+2”, “science: caffeine”, or “wiki: photosynthesis”.');
+loadCloud();
+})();
+</script>
+</body>
+</html>
